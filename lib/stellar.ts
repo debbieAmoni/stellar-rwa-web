@@ -151,23 +151,28 @@ function isTransientRpcError(err: unknown): boolean {
  * plus jitter, bounded by `RETRY_ATTEMPTS`. Non-transient errors (e.g.
  * contract/simulation errors) are rethrown immediately without retrying,
  * since retrying a deterministic contract rejection just wastes an RPC round
- * trip.
+ * trip. When rate-limit retries are exhausted, throws RateLimitError instead
+ * of the raw error so callers can surface a helpful message.
  */
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   let lastError: unknown;
+  let wasRateLimit = false;
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
     try {
       return await fn();
     } catch (e) {
       lastError = e;
       const isLastAttempt = attempt === RETRY_ATTEMPTS - 1;
-      if (isLastAttempt || !isTransientRpcError(e)) throw e;
+      const isTransient = isTransientRpcError(e);
+      if (isTransient) wasRateLimit = true;
+      if (isLastAttempt || !isTransient) throw e;
       const backoff = RETRY_BASE_DELAY_MS * 2 ** attempt;
       const jitter = Math.random() * RETRY_BASE_DELAY_MS;
       await sleep(backoff + jitter);
     }
   }
-  // Unreachable: the loop above always either returns or throws.
+  // If we exhausted retries on rate limit, throw a friendlier error
+  if (wasRateLimit) throw new RateLimitError();
   throw lastError;
 }
 
@@ -352,6 +357,15 @@ export class ContractError extends Error {
     super(message);
     this.name = "ContractError";
     this.detail = detail;
+  }
+}
+
+export class RateLimitError extends Error {
+  constructor() {
+    super(
+      "The RPC node is rate limited. Try again in a moment, or configure a custom RPC endpoint to increase capacity.",
+    );
+    this.name = "RateLimitError";
   }
 }
 

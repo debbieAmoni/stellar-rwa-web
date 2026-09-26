@@ -48,7 +48,7 @@ export function PlatformStats() {
             {item.label}
           </p>
           {item.value === null ? (
-            <Skeleton className="mt-2 h-8 w-24" />
+            <Skeleton className="mt-2 h-9 w-40" />
           ) : (
             <p className="mt-2 text-3xl font-bold text-base-100">{item.value}</p>
           )}
